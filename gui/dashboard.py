@@ -1,201 +1,153 @@
-"""Books CRUD operation visualization."""
+"""Application starting dashboard dashboard visualization module."""
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 
 # Shared UI COLORS
-COLORS = { 'bg_primary': '#1e1e2e' }
+COLORS = {
+    'bg_primary': '#1e1e2e',
+    'bg_secondary': '#2a2a3c',
+    'bg_tertiary': '#3b3b52',
+    'button_primary': '#4f46e5',
+    'button_hover': '#6366f1',
+    'text_primary': '#ffffff',
+    'text_secondary': '#b0b0c0',
+    'success': '#22c55e',
+    'danger': '#ef4444',
+    'warning': '#f59e0b',
+    'info': '#0ea5e9',
+    'input_bg': '#3b3b52',
+    'border': '#4a4a62'
+}
 
-class BooksPage:
+class DashboardPage:
     def __init__(self, app):
         self.app = app
         
     def show(self):
         self.app.clear_content()
-        self.app.current_page = 'books'
+        self.app.current_page = 'dashboard'
         
+        # Main Canvas and Scrollable Frame
         canvas = tk.Canvas(self.app.content, bg=COLORS['bg_primary'], highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.app.content, orient=tk.VERTICAL, command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas, style='Content.TFrame')
         
         scrollable_frame.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
-        canvas.create_window((0, 0), window=scrollable_frame, anchor='nw')
+        canvas.create_window((0, 0), window=scrollable_frame, anchor='nw', width=canvas.winfo_width())
+        
+        # Ensure the frame expands to fill canvas width dynamically
+        def _on_canvas_configure(event):
+            canvas.itemconfig(canvas.find_withtag("all")[0], width=event.width)
+        canvas.bind('<Configure>', _on_canvas_configure)
+        
         canvas.configure(yscrollcommand=scrollbar.set)
         
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
+        # Welcome / Title Section
         title_frame = ttk.Frame(scrollable_frame, style='Content.TFrame')
-        title_frame.pack(fill=tk.X, padx=30, pady=20)
-        ttk.Label(title_frame, text='Books Management', style='Title.TLabel').pack(side=tk.LEFT, anchor=tk.W)
+        title_frame.pack(fill=tk.X, padx=40, pady=(40, 20))
         
-        button_frame = ttk.Frame(scrollable_frame, style='Content.TFrame')
-        button_frame.pack(fill=tk.X, padx=30, pady=10)
+        ttk.Label(title_frame, text='Dashboard Overview', font=('Segoe UI', 28, 'bold'), background=COLORS['bg_primary'], foreground=COLORS['text_primary']).pack(anchor=tk.W)
+        ttk.Label(title_frame, text='Welcome back! Here is what is happening in your library today.', font=('Segoe UI', 12), background=COLORS['bg_primary'], foreground=COLORS['text_secondary']).pack(anchor=tk.W, pady=(5, 0))
         
-        ttk.Button(button_frame, text='➕ Add Book', command=self.add_book_dialog, style='Success.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text='✏️ Edit Book', command=self.edit_book_dialog, style='Primary.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text='🗑️ Delete Book', command=self.delete_book_dialog, style='Danger.TButton').pack(side=tk.LEFT, padx=5)
+        # Stats Section
+        stats_frame = ttk.Frame(scrollable_frame, style='Content.TFrame')
+        stats_frame.pack(fill=tk.X, padx=35, pady=10)
         
-        table_frame = ttk.Frame(scrollable_frame, style='Content.TFrame')
-        table_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
+        total_books = self.app.db.fetch_one("SELECT SUM(quantity) FROM books")[0] or 0
+        borrowed_books = len(self.app.db.fetch_all("SELECT * FROM borrows WHERE return_date IS NULL"))
+        available_books = total_books - borrowed_books
+        total_members = len(self.app.db.fetch_all("SELECT * FROM members"))
         
-        columns = ('ID', 'Title', 'Author', 'Category', 'Quantity')
-        tree = ttk.Treeview(table_frame, columns=columns, height=20)
-        tree.column('#0', width=0, stretch=tk.NO)
+        stats = [
+            ('Total Books', total_books, COLORS['button_primary'], '📚'),
+            ('Available', available_books, COLORS['success'], '✅'),
+            ('Borrowed', borrowed_books, COLORS['warning'], '📤'),
+            ('Members', total_members, COLORS['info'], '👥')
+        ]
         
-        for col in columns:
-            tree.column(col, anchor=tk.CENTER, width=180)
-            tree.heading(col, text=col)
+        # Grid layout for stat cards
+        stats_container = ttk.Frame(stats_frame, style='Content.TFrame')
+        stats_container.pack(fill=tk.X)
         
-        books = self.app.db.fetch_all("SELECT * FROM books")
-        for book in books:
-            tree.insert(parent='', index='end', values=book)
-        
-        scrollbar_tree = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=tree.yview)
-        tree.configure(yscroll=scrollbar_tree.set)
-        
-        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar_tree.pack(side=tk.RIGHT, fill=tk.Y)
-
-    def add_book_dialog(self):
-        dialog = tk.Toplevel(self.app)
-        dialog.title('Add Book')
-        dialog.geometry('500x450')
-        dialog.configure(bg=COLORS['bg_primary'])
-        
-        form_frame = ttk.Frame(dialog, style='Content.TFrame')
-        form_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        ttk.Label(form_frame, text='Title', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        title_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=title_var).pack(fill=tk.X, pady=(0, 15))
-        
-        ttk.Label(form_frame, text='Author', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        author_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=author_var).pack(fill=tk.X, pady=(0, 15))
-        
-        ttk.Label(form_frame, text='Category', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        category_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=category_var).pack(fill=tk.X, pady=(0, 15))
-        
-        ttk.Label(form_frame, text='Quantity', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        quantity_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=quantity_var).pack(fill=tk.X, pady=(0, 20))
-        
-        def save():
-            title = title_var.get().strip()
-            author = author_var.get().strip()
-            category = category_var.get().strip()
-            quantity = quantity_var.get().strip()
+        # Create a responsive 2x2 grid or just a row if enough space
+        for i in range(0, len(stats), 2):
+            row_frame = ttk.Frame(stats_container, style='Content.TFrame')
+            row_frame.pack(fill=tk.X, pady=10)
             
-            if not all([title, author, category, quantity]):
-                messagebox.showerror('Error', 'All fields required')
-                return
-            
-            try:
-                quantity = int(quantity)
-                if quantity <= 0:
-                    messagebox.showerror('Error', 'Quantity must be positive')
-                    return
-            except ValueError:
-                messagebox.showerror('Error', 'Quantity must be a number')
-                return
-            
-            self.app.db.execute_query("INSERT INTO books (title, author, category, quantity) VALUES (?, ?, ?, ?)",
-                                (title, author, category, quantity))
-            messagebox.showinfo('Success', 'Book added successfully')
-            dialog.destroy()
-            self.show()
+            for j in range(2):
+                if i + j < len(stats):
+                    stat_name, stat_value, color, icon = stats[i + j]
+                    self.create_stat_card(row_frame, stat_name, stat_value, color, icon)
         
-        ttk.Button(form_frame, text='Add Book', command=save, style='Success.TButton').pack(fill=tk.X, pady=10)
-
-    def edit_book_dialog(self):
-        dialog = tk.Toplevel(self.app)
-        dialog.title('Edit Book')
-        dialog.geometry('500x500')
-        dialog.configure(bg=COLORS['bg_primary'])
+        # Recent Activity Section
+        recent_frame = tk.Frame(scrollable_frame, bg=COLORS['bg_secondary'], padx=30, pady=25)
+        recent_frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=(30, 40))
         
-        form_frame = ttk.Frame(dialog, style='Content.TFrame')
-        form_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        # Activity Header
+        header_frame = tk.Frame(recent_frame, bg=COLORS['bg_secondary'])
+        header_frame.pack(fill=tk.X, pady=(0, 15))
+        ttk.Label(header_frame, text='Recent Borrows', font=('Segoe UI', 16, 'bold'), background=COLORS['bg_secondary'], foreground=COLORS['text_primary']).pack(side=tk.LEFT)
         
-        ttk.Label(form_frame, text='Book ID', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        book_id_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=book_id_var).pack(fill=tk.X, pady=(0, 15))
+        activity_data = self.app.db.fetch_all("""
+            SELECT b.title, m.name, br.borrow_date 
+            FROM borrows br
+            JOIN books b ON br.book_id = b.id
+            JOIN members m ON br.member_id = m.id
+            WHERE br.return_date IS NULL
+            ORDER BY br.borrow_date DESC LIMIT 5
+        """)
         
-        ttk.Label(form_frame, text='Title', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        title_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=title_var).pack(fill=tk.X, pady=(0, 15))
+        if activity_data:
+            for title, member, date in activity_data:
+                # Individual Activity Row
+                row = tk.Frame(recent_frame, bg=COLORS['bg_tertiary'])
+                row.pack(fill=tk.X, pady=6)
+                
+                # Add a subtle left border to the row
+                border = tk.Frame(row, bg=COLORS['warning'], width=4)
+                border.pack(side=tk.LEFT, fill=tk.Y)
+                
+                # Left side: Icon & Title
+                left_frame = tk.Frame(row, bg=COLORS['bg_tertiary'])
+                left_frame.pack(side=tk.LEFT, padx=(15, 10), pady=12)
+                
+                ttk.Label(left_frame, text="📖", font=('Segoe UI', 14), background=COLORS['bg_tertiary']).pack(side=tk.LEFT)
+                ttk.Label(left_frame, text=title, font=('Segoe UI', 11, 'bold'), background=COLORS['bg_tertiary'], foreground=COLORS['text_primary']).pack(side=tk.LEFT, padx=(10, 0))
+                
+                # Middle side: Member
+                middle_frame = tk.Frame(row, bg=COLORS['bg_tertiary'])
+                middle_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+                ttk.Label(middle_frame, text=f"borrowed by {member}", font=('Segoe UI', 10), background=COLORS['bg_tertiary'], foreground=COLORS['text_secondary']).pack(side=tk.LEFT, padx=10)
+                
+                # Right side: Date
+                ttk.Label(row, text=date, font=('Segoe UI', 10), background=COLORS['bg_tertiary'], foreground=COLORS['text_secondary']).pack(side=tk.RIGHT, padx=20)
+        else:
+            empty_frame = tk.Frame(recent_frame, bg=COLORS['bg_tertiary'])
+            empty_frame.pack(fill=tk.X, pady=6)
+            ttk.Label(empty_frame, text='No recent activity to show', font=('Segoe UI', 11), background=COLORS['bg_tertiary'], foreground=COLORS['text_secondary']).pack(pady=20)
+    
+    def create_stat_card(self, parent, title, value, color, icon):
+        card = tk.Frame(parent, bg=COLORS['bg_secondary'], height=130)
+        card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        card.pack_propagate(False)
         
-        ttk.Label(form_frame, text='Author', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        author_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=author_var).pack(fill=tk.X, pady=(0, 15))
+        # Top color accent
+        accent = tk.Frame(card, bg=color, height=4)
+        accent.pack(side=tk.TOP, fill=tk.X)
         
-        ttk.Label(form_frame, text='Category', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        category_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=category_var).pack(fill=tk.X, pady=(0, 15))
+        # Content container
+        content = tk.Frame(card, bg=COLORS['bg_secondary'])
+        content.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
         
-        ttk.Label(form_frame, text='Quantity', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        quantity_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=quantity_var).pack(fill=tk.X, pady=(0, 20))
+        # Header (Icon + Title)
+        header = tk.Frame(content, bg=COLORS['bg_secondary'])
+        header.pack(fill=tk.X)
         
-        def update():
-            book_id = book_id_var.get().strip()
-            title = title_var.get().strip()
-            author = author_var.get().strip()
-            category = category_var.get().strip()
-            quantity = quantity_var.get().strip()
-            
-            if not all([book_id, title, author, category, quantity]):
-                messagebox.showerror('Error', 'All fields required')
-                return
-            
-            try:
-                book_id = int(book_id)
-                quantity = int(quantity)
-                if quantity <= 0:
-                    messagebox.showerror('Error', 'Quantity must be positive')
-                    return
-            except ValueError:
-                messagebox.showerror('Error', 'ID and Quantity must be numbers')
-                return
-            
-            self.app.db.execute_query("UPDATE books SET title=?, author=?, category=?, quantity=? WHERE id=?",
-                                (title, author, category, quantity, book_id))
-            messagebox.showinfo('Success', 'Book updated successfully')
-            dialog.destroy()
-            self.show()
+        ttk.Label(header, text=icon, font=('Segoe UI', 14), background=COLORS['bg_secondary']).pack(side=tk.LEFT)
+        ttk.Label(header, text=title, font=('Segoe UI', 12, 'bold'), background=COLORS['bg_secondary'], foreground=COLORS['text_secondary']).pack(side=tk.LEFT, padx=(8, 0))
         
-        ttk.Button(form_frame, text='Update Book', command=update, style='Primary.TButton').pack(fill=tk.X, pady=10)
-
-    def delete_book_dialog(self):
-        dialog = tk.Toplevel(self.app)
-        dialog.title('Delete Book')
-        dialog.geometry('400x200')
-        dialog.configure(bg=COLORS['bg_primary'])
-        
-        form_frame = ttk.Frame(dialog, style='Content.TFrame')
-        form_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        ttk.Label(form_frame, text='Book ID', style='Heading.TLabel').pack(anchor=tk.W, pady=(10, 5))
-        book_id_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=book_id_var).pack(fill=tk.X, pady=(0, 20))
-        
-        def delete():
-            book_id = book_id_var.get().strip()
-            
-            if not book_id:
-                messagebox.showerror('Error', 'Book ID required')
-                return
-            
-            try:
-                book_id = int(book_id)
-            except ValueError:
-                messagebox.showerror('Error', 'Book ID must be a number')
-                return
-            
-            if messagebox.askyesno('Confirm', 'Delete this book?'):
-                self.app.db.execute_query("DELETE FROM books WHERE id=?", (book_id,))
-                messagebox.showinfo('Success', 'Book deleted successfully')
-                dialog.destroy()
-                self.show()
-        
-        ttk.Button(form_frame, text='Delete Book', command=delete, style='Danger.TButton').pack(fill=tk.X, pady=11)
+        # Value
+        ttk.Label(content, text=str(value), font=('Segoe UI', 36, 'bold'), background=COLORS['bg_secondary'], foreground=COLORS['text_primary']).pack(anchor=tk.W, pady=(10, 0))
