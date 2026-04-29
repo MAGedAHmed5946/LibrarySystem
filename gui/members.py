@@ -1,187 +1,198 @@
-"""Members CRUD operation visualization."""
 import tkinter as tk
 from tkinter import ttk, messagebox
 import re
 
-# Shared UI COLORS
-COLORS = { 'bg_primary': '#1e1e2e' }
+COLORS = {'bg_primary': '#1e1e2e'}
+
 
 class MembersPage:
     def __init__(self, app):
         self.app = app
-        
+        self.tree = None
+
+    # ---------------- UI ----------------
     def show(self):
         self.app.clear_content()
         self.app.current_page = 'members'
-        
-        canvas = tk.Canvas(self.app.content, bg=COLORS['bg_primary'], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.app.content, orient=tk.VERTICAL, command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas, style='Content.TFrame')
-        
-        scrollable_frame.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
-        canvas.create_window((0, 0), window=scrollable_frame, anchor='nw')
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        title_frame = ttk.Frame(scrollable_frame, style='Content.TFrame')
-        title_frame.pack(fill=tk.X, padx=30, pady=20)
-        ttk.Label(title_frame, text='Members Management', style='Title.TLabel').pack(anchor=tk.W)
-        
-        button_frame = ttk.Frame(scrollable_frame, style='Content.TFrame')
-        button_frame.pack(fill=tk.X, padx=30, pady=10)
-        
-        ttk.Button(button_frame, text='➕ Add Member', command=self.add_member_dialog, style='Success.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text='✏️ Edit Member', command=self.edit_member_dialog, style='Primary.TButton').pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text='🗑️ Delete Member', command=self.delete_member_dialog, style='Danger.TButton').pack(side=tk.LEFT, padx=5)
-        
-        table_frame = ttk.Frame(scrollable_frame, style='Content.TFrame')
-        table_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
-        
-        columns = ('ID', 'Name', 'Phone', 'Email')
-        tree = ttk.Treeview(table_frame, columns=columns, height=20)
-        tree.column('#0', width=0, stretch=tk.NO)
-        
+
+        style = ttk.Style()
+        style.map("Treeview",
+                  background=[("selected", "#44475a"), ("active", COLORS['bg_primary'])],
+                  foreground=[("selected", "white"), ("active", "white")])
+
+        frame = tk.Frame(self.app.content, bg=COLORS['bg_primary'])
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        ttk.Label(frame, text="Members Management",
+                  style='Title.TLabel').pack(anchor="w", pady=10)
+
+        # ---------------- Search ----------------
+        search_var = tk.StringVar()
+
+        search_frame = tk.Frame(frame, bg=COLORS['bg_primary'])
+        search_frame.pack(fill="x", pady=5)
+
+        tk.Entry(search_frame, textvariable=search_var, width=40).pack(side="left", padx=5)
+
+        ttk.Button(search_frame, text="Search",
+                   command=lambda: self.search(search_var.get())).pack(side="left", padx=5)
+
+        ttk.Button(search_frame, text="Reset",
+                   command=self.load_data).pack(side="left", padx=5)
+
+        # ---------------- Buttons ----------------
+        btn_frame = tk.Frame(frame, bg=COLORS['bg_primary'])
+        btn_frame.pack(fill="x", pady=10)
+
+        ttk.Button(btn_frame, text='➕ Add Member',
+                   command=self.add_member,
+                   style='Success.TButton').pack(side="left", padx=5)
+
+        ttk.Button(btn_frame, text='✏️ Edit Member',
+                   command=self.edit_member,
+                   style='Primary.TButton').pack(side="left", padx=5)
+
+        ttk.Button(btn_frame, text='🗑️ Delete Member',
+                   command=self.delete_member,
+                   style='Danger.TButton').pack(side="left", padx=5)
+
+        # ---------------- Table ----------------
+        table_frame = tk.Frame(frame, bg=COLORS['bg_primary'])
+        table_frame.pack(fill="both", expand=True)
+
+        columns = ("ID", "Name", "Phone", "Email")
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings")
+
+        # Columns + Sorting
         for col in columns:
-            tree.column(col, anchor=tk.CENTER, width=250)
-            tree.heading(col, text=col)
-        
+            self.tree.heading(col, text=col,
+                              command=lambda c=col: self.sort_column(c, False))
+            self.tree.column(col, anchor="center", width=200)
+
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical",
+                                  command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side="right", fill="y")
+        self.tree.pack(fill="both", expand=True)
+
+        # Double click edit
+        self.tree.bind("<Double-1>", self.on_double_click)
+
+        self.load_data()
+
+    # ---------------- DATA ----------------
+    def load_data(self):
+        self.tree.delete(*self.tree.get_children())
         members = self.app.db.fetch_all("SELECT * FROM members")
-        for member in members:
-            tree.insert(parent='', index='end', values=member)
-        
-        scrollbar_tree = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=tree.yview)
-        tree.configure(yscroll=scrollbar_tree.set)
-        
-        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar_tree.pack(side=tk.RIGHT, fill=tk.Y)
+        for m in members:
+            self.tree.insert("", "end", values=m)
 
-    def add_member_dialog(self):
+    # ---------------- SEARCH ----------------
+    def search(self, keyword):
+        self.tree.delete(*self.tree.get_children())
+
+        query = """
+        SELECT * FROM members
+        WHERE name LIKE ? OR phone LIKE ? OR email LIKE ?
+        """
+        like = f"%{keyword}%"
+        results = self.app.db.fetch_all(query, (like, like, like))
+
+        for r in results:
+            self.tree.insert("", "end", values=r)
+
+    # ---------------- SELECT ----------------
+    def get_selected(self):
+        selected = self.tree.focus()
+        if not selected:
+            messagebox.showerror("Error", "Select a member first")
+            return None
+        return self.tree.item(selected)["values"]
+
+    # ---------------- DOUBLE CLICK EDIT ----------------
+    def on_double_click(self, event):
+        data = self.get_selected()
+        if not data:
+            return
+        self.open_edit_dialog(data)
+
+    # ---------------- FORM ----------------
+    def form_dialog(self, title, data=None):
         dialog = tk.Toplevel(self.app)
-        dialog.title('Add Member')
-        dialog.geometry('500x400')
+        dialog.title(title)
         dialog.configure(bg=COLORS['bg_primary'])
-        
-        form_frame = ttk.Frame(dialog, style='Content.TFrame')
-        form_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        ttk.Label(form_frame, text='Name', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        name_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=name_var).pack(fill=tk.X, pady=(0, 15))
-        
-        ttk.Label(form_frame, text='Phone', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        phone_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=phone_var).pack(fill=tk.X, pady=(0, 15))
-        
-        ttk.Label(form_frame, text='Email', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        email_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=email_var).pack(fill=tk.X, pady=(0, 20))
-        
+
+        frame = tk.Frame(dialog, bg=COLORS['bg_primary'])
+        frame.pack(padx=20, pady=20)
+
+        labels = ["Name", "Phone", "Email"]
+        vars = []
+
+        for i, label in enumerate(labels):
+            ttk.Label(frame, text=label).grid(row=i, column=0, sticky="w", pady=5)
+            var = tk.StringVar(value=data[i+1] if data else "")
+            ttk.Entry(frame, textvariable=var).grid(row=i, column=1, pady=5)
+            vars.append(var)
+
+        return dialog, vars
+
+    # ---------------- ADD ----------------
+    def add_member(self):
+        dialog, vars = self.form_dialog("Add Member")
+
         def save():
-            name = name_var.get().strip()
-            phone = phone_var.get().strip()
-            email = email_var.get().strip()
-            
+            name, phone, email = [v.get().strip() for v in vars]
+
             if not all([name, phone, email]):
-                messagebox.showerror('Error', 'All fields required')
+                messagebox.showerror("Error", "All fields required")
                 return
-            
-            if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
-                messagebox.showerror('Error', 'Invalid email format')
-                return
-            
-            self.app.db.execute_query("INSERT INTO members (name, phone, email) VALUES (?, ?, ?)",
-                                (name, phone, email))
-            messagebox.showinfo('Success', 'Member added successfully')
-            dialog.destroy()
-            self.show()
-        
-        ttk.Button(form_frame, text='Add Member', command=save, style='Success.TButton').pack(fill=tk.X, pady=10)
 
-    def edit_member_dialog(self):
-        dialog = tk.Toplevel(self.app)
-        dialog.title('Edit Member')
-        dialog.geometry('500x450')
-        dialog.configure(bg=COLORS['bg_primary'])
-        
-        form_frame = ttk.Frame(dialog, style='Content.TFrame')
-        form_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        ttk.Label(form_frame, text='Member ID', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        member_id_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=member_id_var).pack(fill=tk.X, pady=(0, 15))
-        
-        ttk.Label(form_frame, text='Name', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        name_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=name_var).pack(fill=tk.X, pady=(0, 15))
-        
-        ttk.Label(form_frame, text='Phone', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        phone_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=phone_var).pack(fill=tk.X, pady=(0, 15))
-        
-        ttk.Label(form_frame, text='Email', style='Heading.TLabel').pack(anchor=tk.W, pady=(0, 5))
-        email_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=email_var).pack(fill=tk.X, pady=(0, 20))
-        
+            if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
+                messagebox.showerror("Error", "Invalid email")
+                return
+
+            self.app.db.execute_query(
+                "INSERT INTO members (name, phone, email) VALUES (?, ?, ?)",
+                (name, phone, email)
+            )
+
+            dialog.destroy()
+            self.load_data()
+
+        ttk.Button(dialog, text="Save", command=save).pack(pady=10)
+
+    # ---------------- EDIT ----------------
+    def edit_member(self):
+        data = self.get_selected()
+        if data:
+            self.open_edit_dialog(data)
+
+    def open_edit_dialog(self, data):
+        dialog, vars = self.form_dialog("Edit Member", data)
+
         def update():
-            member_id = member_id_var.get().strip()
-            name = name_var.get().strip()
-            phone = phone_var.get().strip()
-            email = email_var.get().strip()
-            
-            if not all([member_id, name, phone, email]):
-                messagebox.showerror('Error', 'All fields required')
-                return
-            
-            try:
-                member_id = int(member_id)
-            except ValueError:
-                messagebox.showerror('Error', 'Member ID must be a number')
-                return
-            
-            if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
-                messagebox.showerror('Error', 'Invalid email format')
-                return
-            
-            self.app.db.execute_query("UPDATE members SET name=?, phone=?, email=? WHERE id=?",
-                                (name, phone, email, member_id))
-            messagebox.showinfo('Success', 'Member updated successfully')
-            dialog.destroy()
-            self.show()
-        
-        ttk.Button(form_frame, text='Update Member', command=update, style='Primary.TButton').pack(fill=tk.X, pady=10)
+            name, phone, email = [v.get().strip() for v in vars]
 
-    def delete_member_dialog(self):
-        dialog = tk.Toplevel(self.app)
-        dialog.title('Delete Member')
-        dialog.geometry('400x200')
-        dialog.configure(bg=COLORS['bg_primary'])
-        
-        form_frame = ttk.Frame(dialog, style='Content.TFrame')
-        form_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        ttk.Label(form_frame, text='Member ID', style='Heading.TLabel').pack(anchor=tk.W, pady=(10, 5))
-        member_id_var = tk.StringVar()
-        ttk.Entry(form_frame, textvariable=member_id_var).pack(fill=tk.X, pady=(0, 20))
-        
-        def delete():
-            member_id = member_id_var.get().strip()
-            
-            if not member_id:
-                messagebox.showerror('Error', 'Member ID required')
-                return
-            
-            try:
-                member_id = int(member_id)
-            except ValueError:
-                messagebox.showerror('Error', 'Member ID must be a number')
-                return
-            
-            if messagebox.askyesno('Confirm', 'Delete this member?'):
-                self.app.db.execute_query("DELETE FROM members WHERE id=?", (member_id,))
-                messagebox.showinfo('Success', 'Member deleted successfully')
-                dialog.destroy()
-                self.show()
-        
-        ttk.Button(form_frame, text='Delete Member', command=delete, style='Danger.TButton').pack(fill=tk.X, pady=10)
+            self.app.db.execute_query(
+                "UPDATE members SET name=?, phone=?, email=? WHERE id=?",
+                (name, phone, email, data[0])
+            )
+
+            dialog.destroy()
+            self.load_data()
+
+        ttk.Button(dialog, text="Update", command=update).pack(pady=10)
+
+    # ---------------- DELETE ----------------
+    def delete_member(self):
+        data = self.get_selected()
+        if not data:
+            return
+
+        if messagebox.askyesno("Confirm", "Delete this member?"):
+            self.app.db.execute_query(
+                "DELETE FROM members WHERE id=?", (data[0],)
+            )
+            self.load_data()
