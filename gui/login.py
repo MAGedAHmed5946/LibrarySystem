@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 ﻿"""Login page structure module."""
+=======
+"""Login page structure module."""
+>>>>>>> Esraa_Borrow
 import tkinter as tk
 from tkinter import ttk, messagebox
 
