@@ -1,0 +1,2 @@
+# No external libraries needed for this project
+# Tkinter and SQLite3 are included out of the box in the Python Standard Library mechanism.
